@@ -1,22 +1,22 @@
 package com.internaldev;
 
-import com.sun.net.httpserver.HttpServer;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpExchange;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.jcraft.jsch.*;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.Properties;
 
 public class WebhookListener {
 
     // --- CONFIGURATION ---
     private static final int PORT = 9090;
-    //TODO  Target Server IP need to update this to be like a variable that can be changed per server or something or maybe got from the uptime kuma in the json request
     private static final String REMOTE_HOST = "192.168.4.17";
     private static final String USER = "internaldev";
     private static final String PRIVATE_KEY_CONTENT = "-----BEGIN RSA PRIVATE KEY-----\n" +
@@ -70,27 +70,42 @@ public class WebhookListener {
             "CkusSH9OcXWfCnHT2zXxP99FMg3Il5H1KrRtsI4rk4AIKn8l8BYKrUqUWBcIviWI\n" +
             "kYZU/tw762hCgbsnLPRBVPky/pvdcvDa2EbQzvzfI2L8y899mCG0ttRl6Xu5\n" +
             "-----END RSA PRIVATE KEY-----\n";
-    // fakar kda ezay a7otaha f file w abos 3aleha wala asebha kda msh fr2a as long as on 29
 
-    // Script Locations on Server 17
     private static final String JBOSS_SCRIPT = "/app/scripts/startJBoss.sh";
     private static final String MULE_SCRIPT  = "/app/scripts/startMule.sh";
     private static final String TOMCAT_SCRIPT = "/app/scripts/startTomcat.sh";
     private static final String SECONDARY_TOMCAT_SCRIPT = "/app/scripts/startSecondaryTomcat.sh";
+
+    private final RemoteCommandExecutor commandExecutor;
+
+    public WebhookListener(RemoteCommandExecutor commandExecutor) {
+        this.commandExecutor = commandExecutor;
+    }
+
     public static void main(String[] args) throws IOException {
-        // Start a lightweight HTTP Server
+        RemoteCommandExecutor commandExecutor = new SshRemoteCommandExecutor(REMOTE_HOST, USER, PRIVATE_KEY_CONTENT);
+        WebhookListener webhookListener = new WebhookListener(commandExecutor);
+        webhookListener.start();
+    }
+
+    public void start() throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
-        server.createContext("/webhook", new WebhookHandler());
+        server.createContext("/webhook", new WebhookHandler(this));
         server.setExecutor(null); // Default executor
         server.start();
         System.out.println("🚀 Auto-Restarter Listener started on port " + PORT);
     }
 
     static class WebhookHandler implements HttpHandler {
+        private final WebhookListener listener;
+
+        public WebhookHandler(WebhookListener listener) {
+            this.listener = listener;
+        }
+
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if ("POST".equals(exchange.getRequestMethod())) {
-                // 1. Read the Request Body
                 InputStreamReader isr = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8);
                 BufferedReader br = new BufferedReader(isr);
                 StringBuilder jsonBuilder = new StringBuilder();
@@ -99,13 +114,10 @@ public class WebhookListener {
                     jsonBuilder.append(line);
                 }
 
-                // 2. Parse JSON
                 try {
                     Gson gson = new Gson();
                     JsonObject payload = gson.fromJson(jsonBuilder.toString(), JsonObject.class);
 
-                    // Uptime Kuma sends 'msg' and 'monitor' object
-                    // Safe Logic: Handle missing or null 'monitor' object
                     String msg = payload.has("msg") && !payload.get("msg").isJsonNull()
                             ? payload.get("msg").getAsString()
                             : "";
@@ -120,14 +132,12 @@ public class WebhookListener {
 
                     System.out.println("Received Alert: " + msg);
 
-                    // 3. Logic: Only restart if status is DOWN
                     if (msg.toLowerCase().contains("down")) {
-                        handleDownEvent(serviceName);
+                        listener.handleDownEvent(serviceName);
                     } else {
                         System.out.println("Service is UP or Testing. No action taken.");
                     }
 
-                    // 4. Send Response (200 OK)
                     String response = "Received";
                     exchange.sendResponseHeaders(200, response.length());
                     OutputStream os = exchange.getResponseBody();
@@ -140,64 +150,31 @@ public class WebhookListener {
                     exchange.getResponseBody().close();
                 }
             } else {
-                exchange.sendResponseHeaders(405, -1); // Method Not Allowed
+                exchange.sendResponseHeaders(405, -1);
             }
         }
     }
 
-    private static void handleDownEvent(String serviceName) {
+    public void handleDownEvent(String serviceName) {
         String scriptToRun = null;
 
-        // Map Service Name (from Uptime Kuma) to Script Path
         if (serviceName.toLowerCase().contains("jboss")) {
             scriptToRun = JBOSS_SCRIPT;
         } else if (serviceName.toLowerCase().contains("mule")) {
             scriptToRun = MULE_SCRIPT;
-        } else if (serviceName.toLowerCase().contains("tomcat")) { // this will try to restart t1 and t2 sawa f mmkn nshof aw azbtha mn uptime kuma en y3ml kol wa7d lwa7do yghyr l message aw kda
+        } else if (serviceName.toLowerCase().contains("tomcat")) {
             scriptToRun = TOMCAT_SCRIPT + " && " + SECONDARY_TOMCAT_SCRIPT;
         }
 
         if (scriptToRun != null) {
-            System.out.println("⚠️ " + serviceName + " is DOWN. Triggering restart on " + REMOTE_HOST + "...");
-            executeRemoteCommand(scriptToRun);
+            System.out.println("⚠️ " + serviceName + " is DOWN. Triggering restart...");
+            try {
+                commandExecutor.executeCommand(scriptToRun);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         } else {
             System.out.println("No script configured for service: " + serviceName);
-        }
-    }
-
-    private static void executeRemoteCommand(String scriptPath) {
-        JSch jsch = new JSch();
-        Session session = null;
-        ChannelExec channel = null;
-
-        try {
-            byte[] keyBytes = PRIVATE_KEY_CONTENT.getBytes(StandardCharsets.UTF_8);
-            jsch.addIdentity("server17_memory_key", keyBytes, null, null);
-
-            // Connect
-            session = jsch.getSession(USER, REMOTE_HOST, 22);
-            Properties config = new Properties();
-            config.put("StrictHostKeyChecking", "no"); // Ignore known_hosts for simplicity
-            session.setConfig(config);
-            session.connect(5000); // 5s timeout
-
-            // Execute Command (Load Profile + Run Script)
-            // We run it with 'nohup' so it doesn't die when Java disconnects
-            //will create test cases kda ashof eh l dnia
-            String command = "source ~/.bash_profile; nohup " + scriptPath + " > /dev/null 2>&1 &";
-
-            channel = (ChannelExec) session.openChannel("exec");
-            channel.setCommand(command);
-            channel.connect();
-
-            System.out.println("✅ Command Sent: " + command);
-
-        } catch (JSchException e) {
-            System.err.println("❌ SSH Failed: " + e.getMessage());
-            e.printStackTrace();
-        } finally {
-            if (channel != null) channel.disconnect();
-            if (session != null) session.disconnect();
         }
     }
 }
