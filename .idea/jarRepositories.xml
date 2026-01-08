@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteRepositoriesConfiguration">
+    <remote-repository>
+      <option name="id" value="maven" />
+      <option name="name" value="LibPhone" />
+      <option name="url" value="https://repo1.maven.org/maven2" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="central" />
+      <option name="name" value="Central Repository" />
+      <option name="url" value="https://repo.maven.apache.org/maven2" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="archiva.internal" />
+      <option name="name" value="archiva.internal" />
+      <option name="url" value="http://222.222.100.14:9090/repository/internal/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="jpos" />
+      <option name="name" value="jPOS Central Repository" />
+      <option name="url" value="http://jpos.org/maven" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="archiva.snapshots" />
+      <option name="name" value="archiva.snapshots" />
+      <option name="url" value="http://222.222.100.14:9090/repository/snapshots/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="central" />
+      <option name="name" value="Maven Central repository" />
+      <option name="url" value="https://repo1.maven.org/maven2" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="jboss.community" />
+      <option name="name" value="JBoss Community repository" />
+      <option name="url" value="https://repository.jboss.org/nexus/content/repositories/public/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="archiva.redhat" />
+      <option name="name" value="archiva.redhat" />
+      <option name="url" value="https://maven.repository.redhat.com/techpreview/all/" />
+    </remote-repository>
+  </component>
+</project>
